@@ -94,25 +94,18 @@ class Collection
      * @see http://php.net/manual/en/mongocollection.aggregate.php
      * @see http://docs.mongodb.org/manual/reference/command/aggregate/
      * @param array $pipeline Array of pipeline operators, or the first operator
-     * @param array $op,...   Additional operators (if $pipeline was the first)
+     * @param array $op,...   Aggregate command options
      * @return ArrayIterator
      * @throws ResultException if the command fails
      */
-    public function aggregate(array $pipeline /* , array $op, ... */)
+    public function aggregate(array $pipeline, array $options = array())
     {
-        /* If the single array argument contains a zeroth index, consider it an
-         * array of pipeline operators. Otherwise, assume that each argument is
-         * a pipeline operator.
-         */
-        if ( ! array_key_exists(0, $pipeline)) {
-            $pipeline = func_get_args();
-        }
 
         if ($this->eventManager->hasListeners(Events::preAggregate)) {
             $this->eventManager->dispatchEvent(Events::preAggregate, new AggregateEventArgs($this, $pipeline));
         }
 
-        $result = $this->doAggregate($pipeline);
+        $result = $this->doAggregate($pipeline, $options);
 
         if ($this->eventManager->hasListeners(Events::postAggregate)) {
             $eventArgs = new MutableEventArgs($this, $result);
@@ -839,11 +832,12 @@ class Collection
      * @return ArrayIterator
      * @throws ResultException if the command fails
      */
-    protected function doAggregate(array $pipeline)
+    protected function doAggregate(array $pipeline, array $options = array())
     {
         $command = array();
         $command['aggregate'] = $this->mongoCollection->getName();
         $command['pipeline'] = $pipeline;
+        $command = array_merge($command, $options);
 
         $database = $this->database;
         $result = $this->retry(function() use ($database, $command) {
