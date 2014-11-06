@@ -824,6 +824,16 @@ class Collection
         return $this->mongoCollection->__toString();
     }
 
+    protected function doAggregate(array $pipeline, array $options = array()){
+
+        $options = isset($options['timeout']) ? $this->convertSocketTimeout($options) : $options;
+
+        if (isset($options['cursor'])) {
+            return $this->doAggregateCursor($pipeline, $options);
+        } else {
+            return $this->doAggregateCommand($pipeline, $options);
+        }
+    }
     /**
      * Execute the aggregate command.
      *
@@ -832,7 +842,7 @@ class Collection
      * @return ArrayIterator
      * @throws ResultException if the command fails
      */
-    protected function doAggregate(array $pipeline, array $options = array())
+    protected function doAggregateCommand(array $pipeline, array $options = array())
     {
         $command = array();
         $command['aggregate'] = $this->mongoCollection->getName();
@@ -848,10 +858,48 @@ class Collection
             throw new ResultException($result);
         }
 
-        $arrayIterator = new ArrayIterator(isset($result['result']) ? $result['result'] : array());
-        $arrayIterator->setCommandResult($result);
+        $out = $this->aggregatePipelineGetOperator($pipeline, '$out');
+        if (false !== $out) {
+            return $this->database->selectCollection($out)->find();
+        } else {
+            $arrayIterator = new ArrayIterator(isset($result['result']) ? $result['result'] : array());
+            $arrayIterator->setCommandResult($result);
+            return $arrayIterator;
+        }
 
-        return $arrayIterator;
+    }
+
+    /**
+     * @param array $pipeline
+     * @param string $operator
+     * @return mixed|
+     */
+    protected function aggregatePipelineGetOperator(array $pipeline, $operator)
+    {
+        foreach ($pipeline as $operation) {
+            if (isset($operation[$operator])) {
+                return $operation[$operator];
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @param array $pipeline
+     * @param array $options
+     * @return \MongoCommandCursor
+     * @throws \MongoException
+     */
+    protected function doAggregateCursor(array $pipeline, array $options = array())
+    {
+
+        $collection = $this->mongoCollection;
+
+        $result = $this->retry(function() use ($collection, $pipeline, $options) {
+            return $collection->aggregateCursor($pipeline, $options);
+        });
+
+        return $result;
     }
 
     /**
@@ -867,6 +915,8 @@ class Collection
         $options = isset($options['safe']) ? $this->convertWriteConcern($options) : $options;
         $options = isset($options['wtimeout']) ? $this->convertWriteTimeout($options) : $options;
         $options = isset($options['timeout']) ? $this->convertSocketTimeout($options) : $options;
+
+
         return $this->mongoCollection->batchInsert($a, $options);
     }
 
